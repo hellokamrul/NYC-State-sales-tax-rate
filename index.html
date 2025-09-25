@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NY Sales Tax Lookup — Pub 718 (No Providers)</title>
+<style>
+  :root { --bg:#0b1020; --card:#151a30; --ink:#e9eefc; --muted:#a7b0c6; --primary:#6aa6ff; --warn:#ffca5f; --err:#ff7b7b; --border:#242b49; --shadow:0 10px 30px rgba(0,0,0,.35); --radius:16px; }
+  *{ box-sizing:border-box }
+  body{ margin:0; font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial; background:radial-gradient(1000px 500px at 10% 0%, #0e1430 0%, var(--bg) 45%); color:var(--ink) }
+  .wrap{ max-width:1080px; margin:40px auto; padding:0 20px }
+  header{ display:flex; gap:16px; align-items:center; margin-bottom:24px }
+  header .logo{ width:44px; height:44px; border-radius:12px; display:grid; place-items:center; background:linear-gradient(145deg, #2a4fff, #6aa6ff); box-shadow:var(--shadow); font-weight:800; letter-spacing:.5px; color:white }
+  h1{ font-size:clamp(22px, 3vw, 30px); margin:0 }
+  .sub{ color:var(--muted); margin-top:2px; font-size:14px }
+  .grid{ display:grid; grid-template-columns:1.2fr .8fr; gap:20px }
+  @media (max-width:900px){ .grid{ grid-template-columns:1fr } }
+  .card{ background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow) }
+  .panel{ padding:20px }
+  .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+  .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px }
+  .row + .row, .row3 + .row3, .row + .row3, .row3 + .row{ margin-top:12px }
+  label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px }
+  input,select{ width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--border); background:#0d1226; color:var(--ink); outline:none; transition:border .2s }
+  input:focus,select:focus{ border-color:var(--primary) }
+  .actions{ display:flex; gap:12px; margin-top:16px; align-items:center; flex-wrap:wrap }
+  button{ border:0; border-radius:12px; padding:12px 16px; font-weight:600; cursor:pointer; background:linear-gradient(145deg, #2a4fff, #6aa6ff); color:#fff; box-shadow:var(--shadow) }
+  .hint{ font-size:12px; color:var(--muted); margin-top:8px }
+  .result{ display:grid; gap:16px }
+  .rate{ font-size:clamp(34px,5vw,46px); font-weight:800; letter-spacing:-.5px }
+  .pill{ display:inline-flex; align-items:center; gap:8px; background:#0d1226; border:1px solid var(--border); padding:6px 10px; border-radius:999px; font-size:12px }
+  .kvs{ display:grid; gap:8px }
+  .kv{ display:flex; justify-content:space-between; gap:16px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; padding:8px 10px; border-radius:10px; background:#0f1530; border:1px solid var(--border) }
+  .alert{ padding:12px 14px; border-radius:12px; border:1px solid var(--border); background:#0e1224; font-size:14px }
+  .alert.warn{ border-color:rgba(255,202,95,.3) }
+  .alert.err{ border-color:rgba(255,123,123,.3) }
+  footer{ margin-top:28px; color:var(--muted); font-size:12px; text-align:center }
+  .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono" }
+  .divider{ height:1px; background:var(--border); margin:12px 0 16px }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">NY</div>
+      <div>
+        <h1>NY Sales Tax Lookup</h1>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card panel">
+        <form id="addrForm" onsubmit="event.preventDefault(); lookup();">
+          <div class="row">
+            <div>
+              <label for="street">Street</label>
+              <input id="street" placeholder="e.g., 722 Nepperhan Ave" />
+            </div>
+            <div>
+              <label for="city">City / Borough</label>
+              <input id="city" placeholder="e.g., Yonkers or Brooklyn" />
+            </div>
+          </div>
+          <div class="row3" style="margin-top:12px;">
+            <div>
+              <label for="state">State</label>
+              <select id="state" required>
+                <option value="NY" selected>New York (NY)</option>
+              </select>
+            </div>
+            <div>
+              <label for="zip">ZIP</label>
+              <input id="zip" inputmode="numeric" pattern="\d{5}(-\d{4})?" placeholder="e.g., 10941" />
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <button type="submit">Lookup rate</button>
+            </div>
+          </div>
+          <!-- <div class="hint">Breakdown = State (4.000%) + MCTD (0.375% where applicable) + Local.</div> -->
+        </form>
+      </section>
+
+      <aside class="card panel">
+        <div id="result" class="result">
+          <div class="alert warn">Enter a NY address and press <strong>Lookup rate</strong>.</div>
+        </div>
+        <footer>
+          <div class="divider"></div>
+          <!-- <div>Source: NYS DTF Pub 718. Postal ZIPs don’t define tax jurisdictions; we return the Pub 718 reporting code.</div> -->
+        </footer>
+      </aside>
+    </div>
+  </div>
+
+<script>
+/*====================  Pub 718 constants  ====================*/
+const STATE_RATE = 0.04;        // 4.000%
+const MCTD_RATE  = 0.00375;     // 0.375%
+const NYC_COMBINED = 0.08875;   // 8.875%
+const NYC_CODE     = '8081';
+
+// county → {combined rate, reporting code, flags}
+const COUNTIES = {
+  'ALBANY': { rate: 0.08, code: '0181' },
+  'ALLEGANY': { rate: 0.085, code: '0221' },
+  'BRONX': { rate: NYC_COMBINED, code: NYC_CODE, nyc: true },
+  'BROOME': { rate: 0.08, code: '0321' },
+  'CATTARAUGUS': { rate: 0.08, code: '0481' },
+  'CAYUGA': { rate: 0.08, code: '0511' },
+  'CHAUTAUQUA': { rate: 0.08, code: '0651' },
+  'CHEMUNG': { rate: 0.08, code: '0711' },
+  'CHENANGO': { rate: 0.08, code: '0861' },
+  'CLINTON': { rate: 0.08, code: '0921' },
+  'COLUMBIA': { rate: 0.08, code: '1021' },
+  'CORTLAND': { rate: 0.08, code: '1131' },
+  'DELAWARE': { rate: 0.08, code: '1221' },
+  'DUTCHESS': { rate: 0.08125, code: '1311', mctd: true },
+  'ERIE': { rate: 0.0875, code: '1451' },
+  'ESSEX': { rate: 0.08, code: '1521' },
+  'FRANKLIN': { rate: 0.08, code: '1621' },
+  'FULTON': { rate: 0.08, code: '1791' },
+  'GENESEE': { rate: 0.08, code: '1811' },
+  'GREENE': { rate: 0.08, code: '1911' },
+  'HAMILTON': { rate: 0.08, code: '2011' },
+  'HERKIMER': { rate: 0.0825, code: '2121' },
+  'JEFFERSON': { rate: 0.08, code: '2221' },
+  'KINGS': { rate: NYC_COMBINED, code: NYC_CODE, nyc: true },
+  'LEWIS': { rate: 0.08, code: '2321' },
+  'LIVINGSTON': { rate: 0.08, code: '2411' },
+  'MADISON': { rate: 0.08, code: '2511' },
+  'MONROE': { rate: 0.08, code: '2611' },
+  'MONTGOMERY': { rate: 0.08, code: '2781' },
+  'NASSAU': { rate: 0.08625, code: '2811', mctd: true },
+  'NEW YORK': { rate: NYC_COMBINED, code: NYC_CODE, nyc: true },
+  'NIAGARA': { rate: 0.08, code: '2911' },
+  'ONEIDA': { rate: 0.0875, code: '3010' },
+  'ONONDAGA': { rate: 0.08, code: '3121' },
+  'ONTARIO': { rate: 0.075, code: '3211' },
+  'ORANGE': { rate: 0.08125, code: '3321', mctd: true },
+  'ORLEANS': { rate: 0.08, code: '3481' },
+  'OSWEGO': { rate: 0.08, code: '3501' },
+  'OTSEGO': { rate: 0.08, code: '3621' },
+  'PUTNAM': { rate: 0.08375, code: '3731', mctd: true },
+  'QUEENS': { rate: NYC_COMBINED, code: NYC_CODE, nyc: true },
+  'RENSSELAER': { rate: 0.08, code: '3881' },
+  'RICHMOND': { rate: NYC_COMBINED, code: NYC_CODE, nyc: true },
+  'ROCKLAND': { rate: 0.08375, code: '3921', mctd: true },
+  'ST. LAWRENCE': { rate: 0.08, code: '4091' },
+  'SARATOGA': { rate: 0.07, code: '4111' },
+  'SCHENECTADY': { rate: 0.08, code: '4241' },
+  'SCHOHARIE': { rate: 0.08, code: '4321' },
+  'SCHUYLER': { rate: 0.08, code: '4411' },
+  'SENECA': { rate: 0.08, code: '4511' },
+  'STEUBEN': { rate: 0.08, code: '4691' },
+  'SUFFOLK': { rate: 0.0875, code: '4711', mctd: true },
+  'SULLIVAN': { rate: 0.08, code: '4821' },
+  'TIOGA': { rate: 0.08, code: '4921' },
+  'TOMPKINS': { rate: 0.08, code: '5081' },
+  'ULSTER': { rate: 0.08, code: '5111' },
+  'WARREN': { rate: 0.07, code: '5281' },
+  'WASHINGTON': { rate: 0.07, code: '5311' },
+  'WAYNE': { rate: 0.08, code: '5421' },
+  'WESTCHESTER': { rate: 0.08375, code: '5581', mctd: true },
+  'WYOMING': { rate: 0.08, code: '5621' },
+  'YATES': { rate: 0.08, code: '5721' },
+};
+
+// city-specific overrides (only when Pub 718 lists them distinctly)
+const CITY_OVERRIDES = {
+  // NYC boroughs (all = NYC)
+  'NEW YORK CITY': { rate: NYC_COMBINED, code: NYC_CODE, county: 'NEW YORK', nyc:true },
+  'MANHATTAN':     { rate: NYC_COMBINED, code: NYC_CODE, county: 'NEW YORK', nyc:true },
+  'BROOKLYN':      { rate: NYC_COMBINED, code: NYC_CODE, county: 'KINGS', nyc:true },
+  'QUEENS':        { rate: NYC_COMBINED, code: NYC_CODE, county: 'QUEENS', nyc:true },
+  'BRONX':         { rate: NYC_COMBINED, code: NYC_CODE, county: 'BRONX', nyc:true },
+  'STATEN ISLAND': { rate: NYC_COMBINED, code: NYC_CODE, county: 'RICHMOND', nyc:true },
+  // Westchester cities (distinct codes in 718)
+  'MOUNT VERNON':  { rate: 0.08375, code: '5521', county: 'WESTCHESTER' },
+  'NEW ROCHELLE':  { rate: 0.08375, code: '6861', county: 'WESTCHESTER' },
+  'WHITE PLAINS':  { rate: 0.08375, code: '6513', county: 'WESTCHESTER' },
+  'YONKERS':       { rate: 0.08875, code: '6511', county: 'WESTCHESTER' },
+};
+
+const MCTD_COUNTIES = new Set(['BRONX','KINGS','NEW YORK','QUEENS','RICHMOND','NASSAU','SUFFOLK','WESTCHESTER','ROCKLAND','PUTNAM','DUTCHESS','ORANGE']);
+const NYC_BOROUGHS  = new Set(['NEW YORK','MANHATTAN','BROOKLYN','QUEENS','BRONX','STATEN ISLAND']);
+
+// offline city→county (partial: cover common cases + NYC + Monroe + Orange/Rockland split)
+const CITY_TO_COUNTY = {
+  // NYC
+  'NEW YORK':'NEW YORK','MANHATTAN':'NEW YORK','BROOKLYN':'KINGS','QUEENS':'QUEENS','BRONX':'BRONX','STATEN ISLAND':'RICHMOND',
+  // Westchester
+  'YONKERS':'WESTCHESTER','MOUNT VERNON':'WESTCHESTER','NEW ROCHELLE':'WESTCHESTER','WHITE PLAINS':'WESTCHESTER',
+  // Nassau/Suffolk samples
+  'HEMPSTEAD':'NASSAU','GLEN COVE':'NASSAU','LONG BEACH':'NASSAU','OYSTER BAY':'NASSAU',
+  'RIVERHEAD':'SUFFOLK','HUNTINGTON':'SUFFOLK','ISLIP':'SUFFOLK','SMITHTOWN':'SUFFOLK','EAST HAMPTON':'SUFFOLK','SOUTHAMPTON':'SUFFOLK',
+  // Monroe area
+  'ROCHESTER':'MONROE','GREECE':'MONROE','IRONDEQUOIT':'MONROE','BRIGHTON':'MONROE','PITTSFORD':'MONROE','HENRIETTA':'MONROE','WEBSTER':'MONROE','FAIRPORT':'MONROE','HILTON':'MONROE','BROCKPORT':'MONROE','SPENCERPORT':'MONROE','GATES':'MONROE','CHILI':'MONROE','PENFIELD':'MONROE','PERINTON':'MONROE','EAST ROCHESTER':'MONROE',
+  // Orange
+  'MIDDLETOWN':'ORANGE','GOSHEN':'ORANGE','NEWBURGH':'ORANGE','NEW WINDSOR':'ORANGE','WARWICK':'ORANGE','CHESTER':'ORANGE','PORT JERVIS':'ORANGE','CORNWALL':'ORANGE','WASHINGTONVILLE':'ORANGE','BLOOMING GROVE':'ORANGE','WALDEN':'ORANGE','MONTGOMERY':'ORANGE','MAYBROOK':'ORANGE','GREENWOOD LAKE':'ORANGE','HARRIMAN':'ORANGE','HIGHLAND FALLS':'ORANGE','WOODBURY':'ORANGE','TUXEDO PARK':'ORANGE',
+  // Rockland
+  'MONSEY':'ROCKLAND','SPRING VALLEY':'ROCKLAND','NANUET':'ROCKLAND','NYACK':'ROCKLAND','SUFFERN':'ROCKLAND','PEARL RIVER':'ROCKLAND','HAVERSTRAW':'ROCKLAND','CONGERS':'ROCKLAND','STONY POINT':'ROCKLAND','POMONA':'ROCKLAND','TAPPAN':'ROCKLAND','ORANGEBURG':'ROCKLAND','BLAUVELT':'ROCKLAND','WEST NYACK':'ROCKLAND','WEST HAVERSTRAW':'ROCKLAND','HILLBURN':'ROCKLAND','GARNERVILLE':'ROCKLAND','VALLEY COTTAGE':'ROCKLAND','PIERMONT':'ROCKLAND',
+  // Adirondacks sample
+  'LONG LAKE':'HAMILTON'
+};
+
+// exact ZIPs for the Orange/Rockland 109xx ambiguity (and a few others)
+const ZIP_EXACT_TO_COUNTY = {
+  // Orange (partial but broad coverage)
+  '10924':'ORANGE','10925':'ORANGE','10926':'ORANGE','10928':'ORANGE','10930':'ORANGE','10940':'ORANGE','10941':'ORANGE','10950':'ORANGE','10953':'ORANGE',
+  '10958':'ORANGE','10959':'ORANGE','10963':'ORANGE','10969':'ORANGE','10973':'ORANGE','10975':'ORANGE','10988':'ORANGE','10990':'ORANGE','10992':'ORANGE','10996':'ORANGE',
+  // Rockland
+  '10901':'ROCKLAND','10913':'ROCKLAND','10920':'ROCKLAND','10923':'ROCKLAND','10927':'ROCKLAND','10931':'ROCKLAND','10952':'ROCKLAND','10954':'ROCKLAND','10956':'ROCKLAND',
+  '10960':'ROCKLAND','10962':'ROCKLAND','10964':'ROCKLAND','10965':'ROCKLAND','10968':'ROCKLAND','10970':'ROCKLAND','10974':'ROCKLAND','10976':'ROCKLAND','10977':'ROCKLAND',
+  '10980':'ROCKLAND','10983':'ROCKLAND','10984':'ROCKLAND','10987':'ROCKLAND','10989':'ROCKLAND','10993':'ROCKLAND','10994':'ROCKLAND',
+};
+
+// safe prefixes for broad areas (used only if exact not found)
+const ZIP_PREFIX_TO_COUNTY = [
+  { prefixes:['100','101','102'], county:'NEW YORK' },
+  { prefixes:['103'], county:'RICHMOND' },
+  { prefixes:['104'], county:'BRONX' },
+  { prefixes:['112'], county:'KINGS' },
+  { prefixes:['111','113','114','116'], county:'QUEENS' },
+  { prefixes:['110','115','118'], county:'NASSAU' },
+  { prefixes:['117','119'], county:'SUFFOLK' },
+  { prefixes:['146'], county:'MONROE' },
+  { prefixes:['105','106','107'], county:'WESTCHESTER' },
+  { prefixes:['125'], county:'DUTCHESS' },
+  { prefixes:['127'], county:'SULLIVAN' },
+  { prefixes:['128'], county:'WARREN' },
+];
+
+/*====================  Helpers  ====================*/
+const toTitle = s => (s||'').toLowerCase().replace(/\b([a-z])/g, (_,c)=>c.toUpperCase());
+const fmtPct  = x => (x*100).toFixed(3).replace(/\.000$/, '') + '%';
+const normCounty = name => (name||'').toUpperCase().replace(/\s+COUNTY$/, '').trim();
+
+const breakdown = (combined, mctd) => {
+  const state = STATE_RATE;
+  const m = mctd ? MCTD_RATE : 0;
+  const local = +(combined - state - m).toFixed(5);
+  return { state, mctd: m, local };
+};
+
+const setError = msg => {
+  document.getElementById('result').innerHTML = `<div class="alert err">${msg}</div>`;
+};
+
+function renderResult(info){
+  const parts = breakdown(info.combined, info.mctd);
+  const rows = [
+    ['New York State', fmtPct(parts.state)],
+    ['MCTD', fmtPct(parts.mctd)],
+    ['Local', fmtPct(parts.local)]
+  ].map(([k,v])=>`<div class="kv"><div>${k}</div><div>${v}</div></div>`).join('');
+
+  document.getElementById('result').innerHTML = `
+    <div class="pill">Combined Rate</div>
+    <div class="rate">${fmtPct(info.combined)}</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <!-- <span class="pill">Source: Pub 718 (no providers)</span> -->
+      <span class="pill">Jurisdiction code: <span class="mono">${info.code}</span></span>
+      <span class="pill">County: <span class="mono">${info.county}</span></span>
+    </div>
+    <div class="kvs">${rows}</div>`;
+}
+
+/*====================  JSONP (CORS-safe)  ====================*/
+function jsonp(url, timeout=9000){
+  return new Promise((resolve, reject)=>{
+    const cb = `__jsonp_cb_${Math.random().toString(36).slice(2)}`;
+    const s = document.createElement('script');
+    s.src = `${url}${url.includes('?') ? '&' : '?'}callback=${cb}`;
+    let done = false;
+    const clean = (err)=>{ try{ delete window[cb]; s.remove(); }catch{} if(err) reject(err); };
+    const timer = setTimeout(()=>{ if(done) return; done=true; clean(new Error('JSONP timeout')); }, timeout);
+    window[cb] = data => { if(done) return; done=true; clearTimeout(timer); clean(); resolve(data); };
+    s.onerror = ()=>{ if(done) return; done=true; clearTimeout(timer); clean(new Error('JSONP error')); };
+    document.head.appendChild(s);
+  });
+}
+
+/*====================  County geocoding (Census only)  ====================*/
+async function geocodeCounty(street, city, state='NY', zip=''){
+  let county = '';
+
+  // 1) fetch → geographies (may be CORS-blocked)
+  try{
+    const u = new URL('https://geocoding.geo.census.gov/geocoder/locations/address');
+    u.searchParams.set('street', street||'');
+    if(city) u.searchParams.set('city', city);
+    u.searchParams.set('state', state||'NY');
+    if(zip) u.searchParams.set('zip', zip);
+    u.searchParams.set('benchmark', 'Public_AR_Current');
+    u.searchParams.set('format', 'json');
+
+    const d = await fetch(u.toString()).then(r=>{ if(!r.ok) throw 0; return r.json(); });
+    const m = d?.result?.addressMatches?.[0];
+    const lat = m?.coordinates?.y, lon = m?.coordinates?.x;
+
+    if(lat && lon){
+      const g = new URL('https://geocoding.geo.census.gov/geocoder/geographies/coordinates');
+      g.searchParams.set('x', lon); g.searchParams.set('y', lat);
+      g.searchParams.set('benchmark','Public_AR_Current');
+      g.searchParams.set('vintage','Current_Current');
+      g.searchParams.set('layers','County');
+      g.searchParams.set('format','json');
+      const d2 = await fetch(g.toString()).then(r=>{ if(!r.ok) throw 0; return r.json(); });
+      county = normCounty(d2?.result?.geographies?.Counties?.[0]?.NAME);
+    }
+  }catch{ /* fall through to JSONP */ }
+
+  // 2) JSONP fallbacks (bypass CORS)
+  if(!county){
+    try{
+      const u = new URL('https://geocoding.geo.census.gov/geocoder/locations/address');
+      u.searchParams.set('street', street||'');
+      if(city) u.searchParams.set('city', city);
+      u.searchParams.set('state', state||'NY');
+      if(zip) u.searchParams.set('zip', zip);
+      u.searchParams.set('benchmark','Public_AR_Current');
+      u.searchParams.set('format','jsonp');
+      const d = await jsonp(u.toString());
+      const m = d?.result?.addressMatches?.[0];
+      const lat = m?.coordinates?.y, lon = m?.coordinates?.x;
+
+      if(lat && lon){
+        const g = new URL('https://geocoding.geo.census.gov/geocoder/geographies/coordinates');
+        g.searchParams.set('x', lon); g.searchParams.set('y', lat);
+        g.searchParams.set('benchmark','Public_AR_Current');
+        g.searchParams.set('vintage','Current_Current');
+        g.searchParams.set('layers','County');
+        g.searchParams.set('format','jsonp');
+        const d2 = await jsonp(g.toString());
+        county = normCounty(d2?.result?.geographies?.Counties?.[0]?.NAME);
+      }
+    }catch{ /* swallow */ }
+  }
+
+  // 3) Offline inference
+  if(!county) county = inferCountyOffline(city, zip);
+  return county;
+}
+
+/*====================  Offline inference  ====================*/
+function inferCountyOffline(city, zip){
+  const c = (city||'').trim().toUpperCase();
+  if(NYC_BOROUGHS.has(c)) return CITY_TO_COUNTY[c];
+  if(CITY_TO_COUNTY[c]) return CITY_TO_COUNTY[c];
+
+  const z5 = (zip||'').replace(/[^0-9]/g,'').slice(0,5);
+  if(z5 && ZIP_EXACT_TO_COUNTY[z5]) return ZIP_EXACT_TO_COUNTY[z5];
+  if(z5 && z5.length>=3){
+    const pre = z5.slice(0,3);
+    for(const r of ZIP_PREFIX_TO_COUNTY) if(r.prefixes.includes(pre)) return r.county;
+  }
+  return '';
+}
+
+/*====================  Rate resolution  ====================*/
+function calculate(city, county){
+  const cU = (city||'').trim().toUpperCase();
+  const kU = normCounty(county);
+
+  // NYC borough names map straight to NYC
+  if(NYC_BOROUGHS.has(cU)){
+    const map = { 'NEW YORK':'NEW YORK','MANHATTAN':'NEW YORK','BROOKLYN':'KINGS','QUEENS':'QUEENS','BRONX':'BRONX','STATEN ISLAND':'RICHMOND' };
+    return { combined: NYC_COMBINED, code: NYC_CODE, mctd:true, scope:'city', county: map[cU] };
+  }
+
+  // City overrides (e.g., Yonkers)
+  if(CITY_OVERRIDES[cU]){
+    const o = CITY_OVERRIDES[cU];
+    const inM = o.nyc || MCTD_COUNTIES.has(o.county);
+    return { combined:o.rate, code:o.code, mctd:inM, scope:'city', county:o.county };
+  }
+
+  // County default
+  if(COUNTIES[kU]){
+    const e = COUNTIES[kU];
+    const inM = e.nyc || e.mctd || MCTD_COUNTIES.has(kU);
+    return { combined:e.rate, code:e.code, mctd:inM, scope:'county', county:kU };
+  }
+  return null;
+}
+
+/*====================  Submit  ====================*/
+async function lookup(){
+  const street = document.getElementById('street').value.trim();
+  const city   = document.getElementById('city').value.trim();
+  const state  = document.getElementById('state').value;
+  const zip    = document.getElementById('zip').value.trim();
+
+  if(state !== 'NY') return setError('This tool only supports New York (NY).');
+  if(!city && !zip)  return setError('Enter at least a city/borough or a ZIP.');
+
+  const county = await geocodeCounty(street, city, state, zip);
+  const info = calculate(city, county);
+  if(!info){ setError("Couldn't determine jurisdiction. Try a more specific city/ZIP."); return; }
+  renderResult(info);
+}
+</script>
+</body>
+</html>
